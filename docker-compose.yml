@@ -1,0 +1,124 @@
+# =============================================================================
+# OFF Barcode Lookup Server — Docker Compose (Go)
+# Para: Intel Mac (dev) / TATOOINE (prod)
+# =============================================================================
+#
+# Quick start:
+#   cp .env.example .env        # Editar API_KEY
+#   docker compose up -d        # Sobe tudo (downloader + app)
+#
+# Ou separado:
+#   docker compose run --rm downloader   # Só baixar dataset
+#   docker compose up -d app             # Só subir API
+#
+# Testar:
+#   curl http://localhost:8090/api/v1/stats
+#   curl -H "X-API-Key: changeme" http://localhost:8090/api/v1/product/7891000100103
+#
+# =============================================================================
+
+services:
+
+  # ─────────────────────────────────────────────
+  # App — Go API server
+  # ─────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: off-barcode-api
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8090}:8080"
+    volumes:
+      - off-data:/data
+    environment:
+      - DUCKDB_PATH=/data/off.duckdb
+      - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-2GB}
+      - DUCKDB_THREADS=${DUCKDB_THREADS:-4}
+      - IMAGE_CACHE_PATH=/data/images
+      - MAX_IMAGE_CACHE_GB=${MAX_IMAGE_CACHE_GB:-20}
+      - IMAGE_CACHE_TTL_DAYS=${IMAGE_CACHE_TTL_DAYS:-90}
+      - S3_BASE_URL=https://openfoodfacts-images.s3.eu-west-3.amazonaws.com/data
+      - PARQUET_URL=https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true
+      - PRECACHE_BRAZILIAN=${PRECACHE_BRAZILIAN:-false}
+      - PORT=8080
+      - API_KEY=${API_KEY:-changeme}
+      - REFRESH_HOUR_UTC=${REFRESH_HOUR_UTC:-4}
+    depends_on:
+      downloader:
+        condition: service_completed_successfully
+    networks:
+      - off-net
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ─────────────────────────────────────────────
+  # Downloader — Baixa Parquet do Hugging Face
+  # ─────────────────────────────────────────────
+  downloader:
+    image: alpine:latest
+    container_name: off-downloader
+    volumes:
+      - off-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache curl
+        echo "=== OFF Dataset Downloader ==="
+        
+        if [ -f /data/food.parquet ]; then
+          echo "Dataset exists (/data/food.parquet)"
+          file_age=$$(( ($$(date +%s) - $$(stat -c %Y /data/food.parquet 2>/dev/null || date +%s)) / 86400 ))
+          echo "Age: $${file_age} days"
+          
+          if [ "$$file_age" -lt 7 ]; then
+            echo "Fresh enough, skipping."
+            exit 0
+          fi
+          echo "Older than 7 days, updating..."
+        fi
+        
+        chmod 777 /data
+        echo "Downloading from Hugging Face (~4.5GB)..."
+        curl -L --progress-bar \
+          -o /data/food.parquet.tmp \
+          "https://huggingface.co/datasets/openfoodfacts/product-database/resolve/main/food.parquet?download=true"
+        
+        if [ $$? -eq 0 ] && [ -s /data/food.parquet.tmp ]; then
+          mv /data/food.parquet.tmp /data/food.parquet
+          echo "Done! Size: $$(du -h /data/food.parquet | cut -f1)"
+        else
+          echo "ERROR: Download failed"
+          rm -f /data/food.parquet.tmp
+          [ -f /data/food.parquet ] && { echo "Using existing."; exit 0; }
+          exit 1
+        fi
+    networks:
+      - off-net
+
+# ─────────────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────────────
+volumes:
+  off-data:
+    driver: local
+    # TATOOINE prod — descomente e ajuste:
+    # driver_opts:
+    #   type: none
+    #   device: /srv/off-barcode/data
+    #   o: bind
+
+# ─────────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────────
+networks:
+  off-net:
+    driver: bridge
+    # TATOOINE prod — descomente para nginx-proxy:
+    # external: true
+    # name: nginx-proxy
