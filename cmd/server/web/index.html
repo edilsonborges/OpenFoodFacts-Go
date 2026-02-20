@@ -808,10 +808,7 @@ function app() {
             try {
                 let url = `/api/v1/search?q=${encodeURIComponent(this.exploreQuery)}&limit=${this.exploreLimit}`;
                 if (this.exploreCountry) url += `&country=${encodeURIComponent(this.exploreCountry)}`;
-                // Use offset via limit trick: fetch limit+offset and slice (API doesn't have offset param)
-                // Actually the search API doesn't support offset, so we fetch a larger set
-                // For now, just use the limit param and adjust
-                const res = await fetch(url);
+                const res = await this.api('GET', url);
                 if (res.ok) {
                     const data = await res.json();
                     this.exploreResults = data.products || [];
