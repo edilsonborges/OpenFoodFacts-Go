@@ -78,7 +78,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Register creates a new user. First user becomes admin. Subsequent users require admin.
+// Register creates a new user. Requires admin authentication.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -95,21 +95,13 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isFirstUser := h.db.UserCount() == 0
-
-	// If not the first user, require admin role from the request context
-	if !isFirstUser {
-		claims, ok := ClaimsFromContext(r.Context())
-		if !ok || claims.Role != "admin" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "only admins can create new users"})
-			return
-		}
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.Role != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only admins can create new users"})
+		return
 	}
 
 	role := req.Role
-	if isFirstUser {
-		role = "admin" // First user is always admin
-	}
 	if role == "" {
 		role = "editor"
 	}

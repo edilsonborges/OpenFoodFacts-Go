@@ -239,7 +239,7 @@ func (db *DB) GetByBarcode(barcode string) (*Product, error) {
 
 // Search finds products by name or brand.
 // Supports optional country filter: ?country=en:brazil (default: no filter)
-func (db *DB) Search(query string, limit int, country string) ([]ProductSummary, error) {
+func (db *DB) Search(query string, limit, offset int, country string) ([]ProductSummary, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -249,27 +249,45 @@ func (db *DB) Search(query string, limit int, country string) ([]ProductSummary,
 	if limit > 100 {
 		limit = 100
 	}
-
-	pattern := "%" + query + "%"
+	if offset < 0 {
+		offset = 0
+	}
 
 	var rows *sql.Rows
 	var err error
 
-	if country != "" {
+	hasQuery := query != ""
+	pattern := "%" + query + "%"
+
+	switch {
+	case hasQuery && country != "":
 		rows, err = db.conn.Query(`
 			SELECT code, COALESCE(product_name[1].text, ''), COALESCE(brands, '')
 			FROM products
 			WHERE (product_name[1].text ILIKE ? OR brands ILIKE ?)
 			  AND list_contains(countries_tags, ?)
-			LIMIT ?
-		`, pattern, pattern, country, limit)
-	} else {
+			LIMIT ? OFFSET ?
+		`, pattern, pattern, country, limit, offset)
+	case hasQuery:
 		rows, err = db.conn.Query(`
 			SELECT code, COALESCE(product_name[1].text, ''), COALESCE(brands, '')
 			FROM products
 			WHERE product_name[1].text ILIKE ? OR brands ILIKE ?
-			LIMIT ?
-		`, pattern, pattern, limit)
+			LIMIT ? OFFSET ?
+		`, pattern, pattern, limit, offset)
+	case country != "":
+		rows, err = db.conn.Query(`
+			SELECT code, COALESCE(product_name[1].text, ''), COALESCE(brands, '')
+			FROM products
+			WHERE list_contains(countries_tags, ?)
+			LIMIT ? OFFSET ?
+		`, country, limit, offset)
+	default:
+		rows, err = db.conn.Query(`
+			SELECT code, COALESCE(product_name[1].text, ''), COALESCE(brands, '')
+			FROM products
+			LIMIT ? OFFSET ?
+		`, limit, offset)
 	}
 
 	if err != nil {

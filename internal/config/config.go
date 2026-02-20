@@ -29,6 +29,11 @@ type Config struct {
 	PrecacheBrazilian bool
 	PrecacheRateMS    int
 
+	// Admin seed
+	AdminEmail    string
+	AdminPassword string
+	AdminName     string
+
 	// Scheduler
 	RefreshHourUTC int
 }
@@ -49,6 +54,9 @@ func Load() *Config {
 		MaxImageCacheGB:   envOrDefaultInt("MAX_IMAGE_CACHE_GB", 20),
 		ImageCacheTTL:     envOrDefaultInt("IMAGE_CACHE_TTL_DAYS", 90),
 		S3BaseURL:         envOrDefault("S3_BASE_URL", "https://openfoodfacts-images.s3.eu-west-3.amazonaws.com/data"),
+		AdminEmail:        envOrDefault("ADMIN_EMAIL", "admin@edilson.dev"),
+		AdminPassword:     envOrDefault("ADMIN_PASSWORD", "@9021ed123"),
+		AdminName:         envOrDefault("ADMIN_NAME", "Admin"),
 		PrecacheBrazilian: envOrDefault("PRECACHE_BRAZILIAN", "false") == "true",
 		PrecacheRateMS:    envOrDefaultInt("PRECACHE_RATE_MS", 50),
 		RefreshHourUTC:    envOrDefaultInt("REFRESH_HOUR_UTC", 4),

@@ -154,11 +154,22 @@
                                                 <td class="px-6 py-3 text-sm text-gray-900" x-text="p.product_name"></td>
                                                 <td class="px-6 py-3 text-sm text-gray-500" x-text="p.brands"></td>
                                                 <td class="px-6 py-3">
-                                                    <span class="text-xs px-2 py-0.5 rounded-full font-medium"
-                                                        :class="p.status === 'published' ? 'bg-off-100 text-off-700' : 'bg-yellow-100 text-yellow-700'"
-                                                        x-text="p.status"></span>
+                                                    <div class="flex items-center gap-1.5">
+                                                        <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                                            :class="p.status === 'published' ? 'bg-off-100 text-off-700' : 'bg-yellow-100 text-yellow-700'"
+                                                            x-text="p.status"></span>
+                                                        <template x-if="p.exists_in_off">
+                                                            <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">OFF</span>
+                                                        </template>
+                                                    </div>
                                                 </td>
                                                 <td class="px-6 py-3 text-right">
+                                                    <template x-if="p.status === 'draft'">
+                                                        <button @click="publishProduct(p.id)" class="text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">Publicar</button>
+                                                    </template>
+                                                    <template x-if="p.status === 'published'">
+                                                        <button @click="unpublishProduct(p.id)" class="text-yellow-600 hover:text-yellow-800 text-sm font-medium mr-3">Despublicar</button>
+                                                    </template>
                                                     <button @click="editProduct(p)" class="text-off-600 hover:text-off-800 text-sm font-medium mr-3">Editar</button>
                                                     <button @click="deleteProduct(p.id)" class="text-red-500 hover:text-red-700 text-sm font-medium">Excluir</button>
                                                 </td>
@@ -203,16 +214,10 @@
                         </div>
                     </template>
 
-                    <template x-if="!exploreLoading && exploreResults.length === 0 && exploreQuery">
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-400">
-                            <p>Nenhum produto encontrado para "<span x-text="exploreQuery"></span>"</p>
-                        </div>
-                    </template>
-
-                    <template x-if="!exploreLoading && !exploreQuery">
+                    <template x-if="!exploreLoading && exploreResults.length === 0">
                         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-400">
                             <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                            <p>Digite algo para buscar na base do Open Food Facts</p>
+                            <p x-text="exploreQuery ? 'Nenhum produto encontrado para \"' + exploreQuery + '\"' : 'Nenhum produto encontrado'"></p>
                         </div>
                     </template>
 
@@ -531,7 +536,7 @@ function app() {
 
         // Explore OFF
         exploreQuery: '',
-        exploreCountry: '',
+        exploreCountry: 'en:brazil',
         exploreResults: [],
         exploreCount: 0,
         exploreOffset: 0,
@@ -768,6 +773,30 @@ function app() {
             }
         },
 
+        async publishProduct(id) {
+            try {
+                const res = await this.api('PUT', `/api/v1/products/${id}`, { status: 'published' });
+                if (res.ok) {
+                    this.loadProducts();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Erro ao publicar');
+                }
+            } catch { alert('Erro de conexão'); }
+        },
+
+        async unpublishProduct(id) {
+            try {
+                const res = await this.api('PUT', `/api/v1/products/${id}`, { status: 'draft' });
+                if (res.ok) {
+                    this.loadProducts();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Erro ao despublicar');
+                }
+            } catch { alert('Erro de conexão'); }
+        },
+
         async deleteProduct(id) {
             if (!confirm('Tem certeza que deseja excluir este produto?')) return;
             try {
@@ -799,14 +828,10 @@ function app() {
 
         // Explore OFF
         async exploreSearch() {
-            if (!this.exploreQuery) {
-                this.exploreResults = [];
-                this.exploreCount = 0;
-                return;
-            }
             this.exploreLoading = true;
             try {
-                let url = `/api/v1/search?q=${encodeURIComponent(this.exploreQuery)}&limit=${this.exploreLimit}`;
+                let url = `/api/v1/search?limit=${this.exploreLimit}&offset=${this.exploreOffset}`;
+                if (this.exploreQuery) url += `&q=${encodeURIComponent(this.exploreQuery)}`;
                 if (this.exploreCountry) url += `&country=${encodeURIComponent(this.exploreCountry)}`;
                 const res = await this.api('GET', url);
                 if (res.ok) {

@@ -56,10 +56,8 @@ func (h *CustomProductHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := req.Status
-	if status == "" {
-		status = "draft"
-	}
+	// Always create as draft — only admin can publish via update
+	status := "draft"
 
 	createdBy := ""
 	if claims, ok := auth.ClaimsFromContext(r.Context()); ok {
@@ -120,8 +118,21 @@ func (h *CustomProductHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enrich with exists_in_off flag
+	type enrichedProduct struct {
+		database.CustomProduct
+		ExistsInOFF bool `json:"exists_in_off"`
+	}
+	enriched := make([]enrichedProduct, len(products))
+	for i, p := range products {
+		enriched[i].CustomProduct = p
+		if offProduct, _ := h.duckdb.GetByBarcode(p.Code); offProduct != nil {
+			enriched[i].ExistsInOFF = true
+		}
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
-		"products": products,
+		"products": enriched,
 		"total":    total,
 		"limit":    limit,
 		"offset":   offset,
@@ -159,19 +170,51 @@ func (h *CustomProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing.Code = req.Code
-	existing.ProductName = req.ProductName
-	existing.Brands = req.Brands
-	existing.Quantity = req.Quantity
-	existing.NutriscoreGrade = req.NutriscoreGrade
-	existing.NovaGroup = req.NovaGroup
-	existing.Categories = req.Categories
-	existing.Countries = req.Countries
-	existing.Allergens = req.Allergens
-	existing.Labels = req.Labels
-	existing.Nutriments = req.Nutriments
-	existing.ImageURL = req.ImageURL
+	// Only update fields that were provided (non-zero values)
+	if req.Code != "" {
+		existing.Code = req.Code
+	}
+	if req.ProductName != "" {
+		existing.ProductName = req.ProductName
+	}
+	if req.Brands != "" {
+		existing.Brands = req.Brands
+	}
+	if req.Quantity != "" {
+		existing.Quantity = req.Quantity
+	}
+	if req.NutriscoreGrade != "" {
+		existing.NutriscoreGrade = req.NutriscoreGrade
+	}
+	if req.NovaGroup != nil {
+		existing.NovaGroup = req.NovaGroup
+	}
+	if req.Categories != nil {
+		existing.Categories = req.Categories
+	}
+	if req.Countries != nil {
+		existing.Countries = req.Countries
+	}
+	if req.Allergens != nil {
+		existing.Allergens = req.Allergens
+	}
+	if req.Labels != nil {
+		existing.Labels = req.Labels
+	}
+	if req.Nutriments != nil {
+		existing.Nutriments = req.Nutriments
+	}
+	if req.ImageURL != "" {
+		existing.ImageURL = req.ImageURL
+	}
 	if req.Status != "" {
+		if req.Status == "published" {
+			claims, ok := auth.ClaimsFromContext(r.Context())
+			if !ok || claims.Role != "admin" {
+				JSON(w, http.StatusForbidden, map[string]string{"error": "only admins can publish products"})
+				return
+			}
+		}
 		existing.Status = req.Status
 	}
 

@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/edilsonborges/openfoodfacts-go/internal/auth"
 	"github.com/edilsonborges/openfoodfacts-go/internal/config"
 	"github.com/edilsonborges/openfoodfacts-go/internal/database"
@@ -57,6 +59,12 @@ func main() {
 	}
 	defer sqlite.Close()
 
+	// Seed admin user
+	if err := sqlite.SeedAdmin(uuid.New().String(), cfg.AdminEmail, cfg.AdminName, cfg.AdminPassword); err != nil {
+		slog.Error("failed to seed admin user", "error", err)
+		os.Exit(1)
+	}
+
 	// JWT service
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
 
@@ -79,8 +87,7 @@ func main() {
 	// --- Auth routes (public) ---
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
-	// Register: first user is public, subsequent requires admin JWT
-	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
+	mux.HandleFunc("POST /api/v1/auth/register", protect(authHandler.Register))
 	mux.HandleFunc("GET /api/v1/auth/me", protect(authHandler.Me))
 
 	// --- Stats (public health check) ---

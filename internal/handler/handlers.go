@@ -74,10 +74,6 @@ func NewSearchHandler(db *database.DB) *SearchHandler {
 
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
-	if q == "" {
-		JSON(w, http.StatusBadRequest, map[string]string{"error": "query parameter 'q' required"})
-		return
-	}
 
 	limit := 20
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -86,10 +82,17 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if n, err := strconv.Atoi(o); err == nil {
+			offset = n
+		}
+	}
+
 	// Optional country filter, e.g. ?country=en:brazil
 	country := r.URL.Query().Get("country")
 
-	results, err := h.db.Search(q, limit, country)
+	results, err := h.db.Search(q, limit, offset, country)
 	if err != nil {
 		JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

@@ -107,6 +107,21 @@ func (db *SQLiteDB) migrate() error {
 
 func (db *SQLiteDB) Close() error { return db.conn.Close() }
 
+// SeedAdmin ensures the admin user exists. Creates it if missing.
+func (db *SQLiteDB) SeedAdmin(id, email, name, password string) error {
+	var exists int
+	db.conn.QueryRow("SELECT count(*) FROM users WHERE email = ?", email).Scan(&exists)
+	if exists > 0 {
+		return nil
+	}
+	_, err := db.CreateUser(id, email, name, password, "admin")
+	if err != nil {
+		return fmt.Errorf("seed admin: %w", err)
+	}
+	slog.Info("admin user seeded", "email", email)
+	return nil
+}
+
 // --- User operations ---
 
 // CreateUser creates a new user. Returns the user or error.
