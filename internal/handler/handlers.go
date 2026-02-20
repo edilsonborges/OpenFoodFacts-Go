@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
+	"github.com/edilsonborges/openfoodfacts-go/internal/config"
 	"github.com/edilsonborges/openfoodfacts-go/internal/database"
 	"github.com/edilsonborges/openfoodfacts-go/internal/imagecache"
 )
@@ -137,22 +139,30 @@ func (h *ImageHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 type StatsHandler struct {
 	db    *database.DB
 	cache *imagecache.Cache
+	cfg   *config.Config
 }
 
-func NewStatsHandler(db *database.DB, cache *imagecache.Cache) *StatsHandler {
-	return &StatsHandler{db: db, cache: cache}
+func NewStatsHandler(db *database.DB, cache *imagecache.Cache, cfg *config.Config) *StatsHandler {
+	return &StatsHandler{db: db, cache: cache, cfg: cfg}
 }
 
 func (h *StatsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(h.db.StartTime()).Hours()
 
-	JSON(w, http.StatusOK, map[string]any{
-		"status":               "ok",
-		"dataset_date":         h.db.DatasetDate,
-		"total_products":       h.db.TotalProducts,
-		"cached_images":        h.cache.CachedImageCount(),
+	resp := map[string]any{
+		"status":                "ok",
+		"dataset_date":          h.db.DatasetDate,
+		"total_products":        h.db.TotalProducts,
+		"cached_images":         h.cache.CachedImageCount(),
 		"cached_images_size_mb": h.cache.CachedImageSizeMB(),
-		"duckdb_version":       h.db.DuckDBVersion,
-		"uptime_hours":         int(uptime),
-	})
+		"duckdb_version":        h.db.DuckDBVersion,
+		"uptime_hours":          int(uptime),
+		"parquet_url":           h.cfg.ParquetURL,
+	}
+
+	if info, err := os.Stat(h.cfg.ParquetPath); err == nil {
+		resp["parquet_size_mb"] = int(info.Size() / (1024 * 1024))
+	}
+
+	JSON(w, http.StatusOK, resp)
 }

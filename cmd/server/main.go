@@ -68,7 +68,7 @@ func main() {
 	customProductHandler := handler.NewCustomProductHandler(sqlite, db)
 	searchHandler := handler.NewSearchHandler(db)
 	imageHandler := handler.NewImageHandler(imgCache)
-	statsHandler := handler.NewStatsHandler(db, imgCache)
+	statsHandler := handler.NewStatsHandler(db, imgCache, cfg)
 
 	// Auth middleware
 	protect := middleware.JWTAuth(jwtSvc, cfg.APIKey)

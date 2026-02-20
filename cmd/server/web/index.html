@@ -69,8 +69,10 @@
                         <div class="flex items-center gap-6">
                             <span class="font-bold text-off-700 text-lg">OFF Manager</span>
                             <button @click="page = 'dashboard'" :class="page === 'dashboard' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Dashboard</button>
+                            <button @click="page = 'explore'; exploreSearch()" :class="page === 'explore' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Explorar</button>
                             <button @click="page = 'products'; loadProducts()" :class="page === 'products' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Produtos</button>
                             <button @click="page = 'lookup'" :class="page === 'lookup' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Consultar</button>
+                            <button @click="page = 'dataset'" :class="page === 'dataset' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Dataset</button>
                         </div>
                         <div class="flex items-center gap-3">
                             <span class="text-sm text-gray-500" x-text="user?.name || user?.email"></span>
@@ -174,6 +176,192 @@
                             </div>
                         </template>
                     </div>
+                </div>
+
+                <!-- Explore OFF -->
+                <div x-show="page === 'explore'" class="fade-in">
+                    <h2 class="text-xl font-bold text-gray-900 mb-6">Explorar Open Food Facts</h2>
+                    <div class="flex gap-3 mb-6">
+                        <input x-model="exploreQuery" @input.debounce.400ms="exploreOffset = 0; exploreSearch()" type="text" placeholder="Buscar por nome ou marca..." class="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                        <select x-model="exploreCountry" @change="exploreOffset = 0; exploreSearch()" class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none text-sm">
+                            <option value="">Todos os Países</option>
+                            <option value="en:brazil">Brasil</option>
+                            <option value="en:portugal">Portugal</option>
+                            <option value="en:france">França</option>
+                            <option value="en:germany">Alemanha</option>
+                            <option value="en:spain">Espanha</option>
+                            <option value="en:italy">Itália</option>
+                            <option value="en:united-states">EUA</option>
+                            <option value="en:united-kingdom">Reino Unido</option>
+                        </select>
+                    </div>
+
+                    <template x-if="exploreLoading">
+                        <div class="text-center py-12 text-gray-400">
+                            <svg class="animate-spin h-8 w-8 mx-auto mb-3 text-off-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                            <p>Buscando...</p>
+                        </div>
+                    </template>
+
+                    <template x-if="!exploreLoading && exploreResults.length === 0 && exploreQuery">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-400">
+                            <p>Nenhum produto encontrado para "<span x-text="exploreQuery"></span>"</p>
+                        </div>
+                    </template>
+
+                    <template x-if="!exploreLoading && !exploreQuery">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-400">
+                            <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            <p>Digite algo para buscar na base do Open Food Facts</p>
+                        </div>
+                    </template>
+
+                    <!-- Results Grid -->
+                    <template x-if="!exploreLoading && exploreResults.length > 0">
+                        <div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                <template x-for="p in exploreResults" :key="p.code">
+                                    <div @click="openExploreDetail(p)" class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 hover:shadow-md hover:border-off-300 transition-all cursor-pointer">
+                                        <div class="flex items-start gap-3">
+                                            <div class="w-14 h-14 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden flex items-center justify-center">
+                                                <template x-if="p.image_url">
+                                                    <img :src="p.image_url" class="w-full h-full object-cover rounded-lg" loading="lazy" @error="$el.parentElement.innerHTML = '<svg class=\'w-6 h-6 text-gray-300\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\'/></svg>'">
+                                                </template>
+                                                <template x-if="!p.image_url">
+                                                    <svg class="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                                </template>
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <p class="text-sm font-medium text-gray-900 truncate" x-text="p.product_name || 'Sem nome'"></p>
+                                                <p class="text-xs text-gray-500 truncate" x-text="p.brands || '—'"></p>
+                                                <p class="text-xs font-mono text-gray-400 mt-1" x-text="p.code"></p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                            <!-- Pagination -->
+                            <div class="mt-6 flex items-center justify-between text-sm text-gray-500">
+                                <span x-text="`${exploreCount} resultado(s)`"></span>
+                                <div class="flex gap-2">
+                                    <button @click="exploreOffset = Math.max(0, exploreOffset - exploreLimit); exploreSearch()" :disabled="exploreOffset === 0" class="px-3 py-1 border rounded text-sm disabled:opacity-30">Anterior</button>
+                                    <span class="px-3 py-1 text-gray-400" x-text="`Página ${Math.floor(exploreOffset / exploreLimit) + 1}`"></span>
+                                    <button @click="exploreOffset += exploreLimit; exploreSearch()" :disabled="exploreResults.length < exploreLimit" class="px-3 py-1 border rounded text-sm disabled:opacity-30">Próximo</button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Explore Detail Modal -->
+                <template x-if="exploreDetail">
+                    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @click.self="exploreDetail = null">
+                        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto fade-in">
+                            <div class="p-6 border-b border-gray-200 flex items-start justify-between">
+                                <div>
+                                    <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Open Food Facts</span>
+                                    <h3 class="text-lg font-bold text-gray-900 mt-2" x-text="exploreDetail.product_name || 'Sem nome'"></h3>
+                                    <p class="text-gray-500" x-text="exploreDetail.brands || ''"></p>
+                                </div>
+                                <button @click="exploreDetail = null" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+                            </div>
+                            <div class="p-6">
+                                <div class="grid grid-cols-2 gap-4 text-sm">
+                                    <div><span class="text-gray-400">Código:</span> <span class="font-mono" x-text="exploreDetail.code"></span></div>
+                                    <div><span class="text-gray-400">Quantidade:</span> <span x-text="exploreDetail.quantity || '—'"></span></div>
+                                    <div><span class="text-gray-400">Nutriscore:</span> <span class="uppercase font-bold" :class="{'text-green-600': exploreDetail.nutriscore_grade === 'a', 'text-lime-600': exploreDetail.nutriscore_grade === 'b', 'text-yellow-600': exploreDetail.nutriscore_grade === 'c', 'text-orange-600': exploreDetail.nutriscore_grade === 'd', 'text-red-600': exploreDetail.nutriscore_grade === 'e'}" x-text="exploreDetail.nutriscore_grade || '—'"></span></div>
+                                    <div><span class="text-gray-400">NOVA:</span> <span x-text="exploreDetail.nova_group || '—'"></span></div>
+                                </div>
+                                <template x-if="exploreDetail.categories && exploreDetail.categories.length > 0">
+                                    <div class="mt-4">
+                                        <span class="text-sm text-gray-400">Categorias:</span>
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            <template x-for="cat in exploreDetail.categories.slice(0, 8)" :key="cat">
+                                                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded" x-text="cat"></span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="exploreDetail.countries && exploreDetail.countries.length > 0">
+                                    <div class="mt-4">
+                                        <span class="text-sm text-gray-400">Países:</span>
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            <template x-for="c in exploreDetail.countries.slice(0, 8)" :key="c">
+                                                <span class="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded" x-text="c"></span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div class="mt-6 pt-4 border-t border-gray-200">
+                                    <button @click="importToCustom(exploreDetail); exploreDetail = null" class="bg-off-600 hover:bg-off-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Importar como Custom</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Dataset -->
+                <div x-show="page === 'dataset'" class="fade-in">
+                    <h2 class="text-xl font-bold text-gray-900 mb-6">Gestão do Dataset</h2>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Info Card -->
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">Info do Dataset</h3>
+                            <div class="space-y-3 text-sm">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">Total de Produtos</span>
+                                    <span class="font-bold text-gray-900" x-text="stats.total_products?.toLocaleString() || '—'"></span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">Data do Dataset</span>
+                                    <span class="font-mono text-gray-700" x-text="stats.dataset_date || '—'"></span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">Versão DuckDB</span>
+                                    <span class="font-mono text-gray-700" x-text="stats.duckdb_version || '—'"></span>
+                                </div>
+                                <template x-if="stats.parquet_size_mb">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Tamanho Parquet</span>
+                                        <span class="font-mono text-gray-700" x-text="stats.parquet_size_mb + ' MB'"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Actions Card -->
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">Ações</h3>
+
+                            <button @click="refreshDataset()" :disabled="datasetRefreshing" class="w-full bg-off-600 hover:bg-off-700 text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                                <template x-if="datasetRefreshing">
+                                    <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                </template>
+                                <span x-text="datasetRefreshing ? 'Atualizando...' : 'Atualizar Dataset'"></span>
+                            </button>
+                            <p x-show="datasetRefreshMsg" class="mt-2 text-sm text-center" :class="datasetRefreshError ? 'text-red-600' : 'text-off-600'" x-text="datasetRefreshMsg"></p>
+
+                            <div class="mt-6 space-y-3">
+                                <a href="https://huggingface.co/datasets/openfoodfacts/product-database" target="_blank" rel="noopener" class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                    Hugging Face Dataset
+                                </a>
+                                <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                    Open Food Facts
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parquet URL -->
+                    <template x-if="stats.parquet_url">
+                        <div class="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Fonte Parquet</h3>
+                            <p class="text-xs font-mono text-gray-500 break-all" x-text="stats.parquet_url"></p>
+                        </div>
+                    </template>
                 </div>
 
                 <!-- Lookup -->
@@ -340,6 +528,21 @@ function app() {
         showProductForm: false,
         editingProduct: null,
         productForm: {},
+
+        // Explore OFF
+        exploreQuery: '',
+        exploreCountry: '',
+        exploreResults: [],
+        exploreCount: 0,
+        exploreOffset: 0,
+        exploreLimit: 20,
+        exploreLoading: false,
+        exploreDetail: null,
+
+        // Dataset
+        datasetRefreshing: false,
+        datasetRefreshMsg: '',
+        datasetRefreshError: false,
 
         // Lookup
         lookupBarcode: '',
@@ -592,6 +795,76 @@ function app() {
             } catch {} finally {
                 this.loading = false;
             }
+        },
+
+        // Explore OFF
+        async exploreSearch() {
+            if (!this.exploreQuery) {
+                this.exploreResults = [];
+                this.exploreCount = 0;
+                return;
+            }
+            this.exploreLoading = true;
+            try {
+                let url = `/api/v1/search?q=${encodeURIComponent(this.exploreQuery)}&limit=${this.exploreLimit}`;
+                if (this.exploreCountry) url += `&country=${encodeURIComponent(this.exploreCountry)}`;
+                // Use offset via limit trick: fetch limit+offset and slice (API doesn't have offset param)
+                // Actually the search API doesn't support offset, so we fetch a larger set
+                // For now, just use the limit param and adjust
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.exploreResults = data.products || [];
+                    this.exploreCount = data.count || 0;
+                }
+            } catch {} finally {
+                this.exploreLoading = false;
+            }
+        },
+
+        openExploreDetail(product) {
+            this.exploreDetail = product;
+        },
+
+        // Dataset
+        async refreshDataset() {
+            this.datasetRefreshing = true;
+            this.datasetRefreshMsg = '';
+            this.datasetRefreshError = false;
+            try {
+                const res = await this.api('POST', '/api/v1/dataset/refresh');
+                if (res.ok) {
+                    this.datasetRefreshMsg = 'Atualização iniciada! Isso pode levar alguns minutos...';
+                    this.pollDatasetStats();
+                } else {
+                    const data = await res.json();
+                    this.datasetRefreshMsg = data.error || 'Erro ao iniciar atualização';
+                    this.datasetRefreshError = true;
+                    this.datasetRefreshing = false;
+                }
+            } catch {
+                this.datasetRefreshMsg = 'Erro de conexão';
+                this.datasetRefreshError = true;
+                this.datasetRefreshing = false;
+            }
+        },
+
+        async pollDatasetStats() {
+            const initialDate = this.stats.dataset_date;
+            let attempts = 0;
+            const poll = setInterval(async () => {
+                attempts++;
+                await this.loadStats();
+                if (this.stats.dataset_date !== initialDate || attempts >= 60) {
+                    clearInterval(poll);
+                    this.datasetRefreshing = false;
+                    if (this.stats.dataset_date !== initialDate) {
+                        this.datasetRefreshMsg = 'Dataset atualizado com sucesso!';
+                    } else {
+                        this.datasetRefreshMsg = 'Atualização em andamento (verifique novamente em breve)';
+                    }
+                }
+            }, 10000);
         },
 
         importToCustom(product) {
