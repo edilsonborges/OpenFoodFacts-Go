@@ -44,6 +44,8 @@ services:
       - PRECACHE_BRAZILIAN=${PRECACHE_BRAZILIAN:-false}
       - PORT=8080
       - API_KEY=${API_KEY:-changeme}
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - SQLITE_PATH=/data/app.db
       - REFRESH_HOUR_UTC=${REFRESH_HOUR_UTC:-4}
     depends_on:
       downloader:

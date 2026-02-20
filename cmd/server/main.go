@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"embed"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edilsonborges/openfoodfacts-go/internal/auth"
 	"github.com/edilsonborges/openfoodfacts-go/internal/config"
 	"github.com/edilsonborges/openfoodfacts-go/internal/database"
 	"github.com/edilsonborges/openfoodfacts-go/internal/handler"
@@ -16,6 +19,9 @@ import (
 	"github.com/edilsonborges/openfoodfacts-go/internal/middleware"
 	"github.com/edilsonborges/openfoodfacts-go/internal/scheduler"
 )
+
+//go:embed web/*
+var webFS embed.FS
 
 func main() {
 	// Logger
@@ -30,7 +36,7 @@ func main() {
 		"duckdb_memory", cfg.DuckDBMemoryLimit,
 	)
 
-	// Database
+	// DuckDB (product dataset)
 	db, err := database.New(cfg)
 	if err != nil {
 		slog.Error("failed to initialize database", "error", err)
@@ -43,26 +49,61 @@ func main() {
 		os.Exit(1)
 	}
 
+	// SQLite (users + custom products)
+	sqlite, err := database.NewSQLite(cfg.SQLitePath)
+	if err != nil {
+		slog.Error("failed to initialize SQLite", "error", err)
+		os.Exit(1)
+	}
+	defer sqlite.Close()
+
+	// JWT service
+	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
+
 	// Image cache
 	imgCache := imagecache.New(cfg)
 
 	// Handlers
-	productHandler := handler.NewProductHandler(db)
+	authHandler := auth.NewHandler(sqlite, jwtSvc)
+	customProductHandler := handler.NewCustomProductHandler(sqlite, db)
 	searchHandler := handler.NewSearchHandler(db)
 	imageHandler := handler.NewImageHandler(imgCache)
 	statsHandler := handler.NewStatsHandler(db, imgCache)
 
+	// Auth middleware
+	protect := middleware.JWTAuth(jwtSvc, cfg.APIKey)
+
 	// Router (Go 1.22+ enhanced routing)
 	mux := http.NewServeMux()
 
-	// Stats — no auth (health check)
+	// --- Auth routes (public) ---
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
+	// Register: first user is public, subsequent requires admin JWT
+	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
+	mux.HandleFunc("GET /api/v1/auth/me", protect(authHandler.Me))
+
+	// --- Stats (public health check) ---
 	mux.HandleFunc("GET /api/v1/stats", statsHandler.Stats)
 
-	// Protected routes
-	mux.HandleFunc("GET /api/v1/product/{barcode}", middleware.APIKey(cfg.APIKey, productHandler.GetByBarcode))
-	mux.HandleFunc("GET /api/v1/search", middleware.APIKey(cfg.APIKey, searchHandler.Search))
-	mux.HandleFunc("GET /api/v1/image/{barcode}/{imgtype}/{resolution}", middleware.APIKey(cfg.APIKey, imageHandler.GetImage))
-	mux.HandleFunc("POST /api/v1/dataset/refresh", middleware.APIKey(cfg.APIKey, func(w http.ResponseWriter, r *http.Request) {
+	// --- Unified barcode lookup (custom + OFF) ---
+	mux.HandleFunc("GET /api/v1/product/{barcode}", protect(customProductHandler.UnifiedLookup))
+
+	// --- Search (OFF dataset) ---
+	mux.HandleFunc("GET /api/v1/search", protect(searchHandler.Search))
+
+	// --- Image proxy ---
+	mux.HandleFunc("GET /api/v1/image/{barcode}/{imgtype}/{resolution}", protect(imageHandler.GetImage))
+
+	// --- Custom products CRUD ---
+	mux.HandleFunc("POST /api/v1/products", protect(customProductHandler.Create))
+	mux.HandleFunc("GET /api/v1/products", protect(customProductHandler.List))
+	mux.HandleFunc("GET /api/v1/products/{id}", protect(customProductHandler.Get))
+	mux.HandleFunc("PUT /api/v1/products/{id}", protect(customProductHandler.Update))
+	mux.HandleFunc("DELETE /api/v1/products/{id}", protect(customProductHandler.Delete))
+
+	// --- Dataset refresh ---
+	mux.HandleFunc("POST /api/v1/dataset/refresh", protect(func(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			if err := scheduler.RefreshDataset(cfg, db); err != nil {
 				slog.Error("dataset refresh failed", "error", err)
@@ -70,6 +111,15 @@ func main() {
 		}()
 		handler.JSON(w, http.StatusAccepted, map[string]string{"message": "Dataset refresh started in background"})
 	}))
+
+	// --- Web frontend (embedded) ---
+	webContent, err := fs.Sub(webFS, "web")
+	if err != nil {
+		slog.Error("failed to load embedded web files", "error", err)
+		os.Exit(1)
+	}
+	fileServer := http.FileServer(http.FS(webContent))
+	mux.Handle("GET /", fileServer)
 
 	// Middleware stack
 	var h http.Handler = mux
@@ -81,7 +131,7 @@ func main() {
 		Addr:         ":" + cfg.Port,
 		Handler:      h,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second, // longer for image proxy
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 

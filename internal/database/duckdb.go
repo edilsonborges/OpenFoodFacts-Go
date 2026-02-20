@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -78,9 +79,24 @@ func (db *DB) Initialize() error {
 	db.conn.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = 'products'").Scan(&tableCount)
 
 	if tableCount == 0 {
-		slog.Info("importing Parquet dataset (this may take a few minutes)...", "path", db.cfg.ParquetPath)
-		if err := db.importParquet(db.cfg.ParquetPath); err != nil {
-			return fmt.Errorf("import parquet: %w", err)
+		// Check if parquet file exists before attempting import
+		if _, statErr := os.Stat(db.cfg.ParquetPath); os.IsNotExist(statErr) {
+			slog.Warn("parquet file not found, creating empty products table", "path", db.cfg.ParquetPath)
+			db.exec(`CREATE TABLE products (
+				code VARCHAR, product_name VARCHAR[], brands VARCHAR,
+				categories_tags VARCHAR[], countries_tags VARCHAR[],
+				nutriscore_grade VARCHAR, nova_group INTEGER,
+				quantity VARCHAR, serving_size VARCHAR,
+				allergens_tags VARCHAR[], labels_tags VARCHAR[],
+				stores_tags VARCHAR, nutriments JSON,
+				images VARCHAR[], last_modified_t BIGINT
+			)`)
+			db.exec("CREATE INDEX idx_code ON products(code)")
+		} else {
+			slog.Info("importing Parquet dataset (this may take a few minutes)...", "path", db.cfg.ParquetPath)
+			if err := db.importParquet(db.cfg.ParquetPath); err != nil {
+				return fmt.Errorf("import parquet: %w", err)
+			}
 		}
 	} else {
 		slog.Info("products table already exists, skipping import")

@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OFF Barcode Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .fade-in { animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        off: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()" x-cloak>
+
+    <!-- Login Screen -->
+    <template x-if="!token">
+        <div class="min-h-screen flex items-center justify-center px-4">
+            <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md fade-in">
+                <div class="text-center mb-8">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-off-100 rounded-2xl mb-4">
+                        <svg class="w-8 h-8 text-off-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7V4a1 1 0 011-1h3M4 17v3a1 1 0 001 1h3M17 3h3a1 1 0 011 1v3M17 21h3a1 1 0 001-1v-3"/>
+                        </svg>
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-900">OFF Barcode Manager</h1>
+                    <p class="text-gray-500 mt-1">Entre na sua conta</p>
+                </div>
+
+                <div x-show="error" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm" x-text="error"></div>
+
+                <form @submit.prevent="login()">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input x-model="form.email" type="text" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none" placeholder="seu@email.com">
+                    </div>
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+                        <input x-model="form.password" type="password" required minlength="6" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none" placeholder="Mínimo 6 caracteres">
+                    </div>
+                    <button type="submit" :disabled="loading" class="w-full bg-off-600 hover:bg-off-700 text-white font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-50">
+                        <span x-show="!loading">Entrar</span>
+                        <span x-show="loading">Carregando...</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </template>
+
+    <!-- App (authenticated) -->
+    <template x-if="token">
+        <div class="min-h-screen">
+            <!-- Nav -->
+            <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between h-14">
+                        <div class="flex items-center gap-6">
+                            <span class="font-bold text-off-700 text-lg">OFF Manager</span>
+                            <button @click="page = 'dashboard'" :class="page === 'dashboard' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Dashboard</button>
+                            <button @click="page = 'products'; loadProducts()" :class="page === 'products' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Produtos</button>
+                            <button @click="page = 'lookup'" :class="page === 'lookup' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Consultar</button>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm text-gray-500" x-text="user?.name || user?.email"></span>
+                            <span class="text-xs bg-off-100 text-off-700 px-2 py-0.5 rounded-full font-medium" x-text="user?.role"></span>
+                            <button @click="logout()" class="text-gray-400 hover:text-gray-600 text-sm">Sair</button>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+                <!-- Dashboard -->
+                <div x-show="page === 'dashboard'" class="fade-in">
+                    <h2 class="text-xl font-bold text-gray-900 mb-6">Dashboard</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <p class="text-sm text-gray-500">Produtos OFF</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-1" x-text="stats.total_products?.toLocaleString() || '—'"></p>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <p class="text-sm text-gray-500">Produtos Custom</p>
+                            <p class="text-3xl font-bold text-off-600 mt-1" x-text="stats.custom_products?.toLocaleString() || '0'"></p>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <p class="text-sm text-gray-500">Imagens em Cache</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-1" x-text="stats.cached_images?.toLocaleString() || '—'"></p>
+                            <p class="text-xs text-gray-400 mt-1" x-text="stats.cached_images_size_mb ? stats.cached_images_size_mb + ' MB' : ''"></p>
+                        </div>
+                    </div>
+                    <div class="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                        <p class="text-sm text-gray-500 mb-2">Info do Sistema</p>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div><span class="text-gray-400">Dataset:</span> <span class="font-mono" x-text="stats.dataset_date || '—'"></span></div>
+                            <div><span class="text-gray-400">DuckDB:</span> <span class="font-mono" x-text="stats.duckdb_version || '—'"></span></div>
+                            <div><span class="text-gray-400">Uptime:</span> <span class="font-mono" x-text="stats.uptime_hours ? stats.uptime_hours + 'h' : '—'"></span></div>
+                            <div><span class="text-gray-400">Status:</span> <span class="text-off-600 font-medium" x-text="stats.status || '—'"></span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Products -->
+                <div x-show="page === 'products'" class="fade-in">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-900">Produtos Customizados</h2>
+                        <button @click="openProductForm()" class="bg-off-600 hover:bg-off-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">+ Novo Produto</button>
+                    </div>
+
+                    <!-- Search -->
+                    <div class="mb-4">
+                        <input x-model="productSearch" @input.debounce.300ms="loadProducts()" type="text" placeholder="Buscar por nome, marca ou código..." class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                    </div>
+
+                    <!-- Table -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <template x-if="products.length === 0">
+                            <div class="p-12 text-center text-gray-400">
+                                <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                                <p>Nenhum produto encontrado</p>
+                                <p class="text-sm mt-1">Clique em "+ Novo Produto" para começar</p>
+                            </div>
+                        </template>
+                        <template x-if="products.length > 0">
+                            <div>
+                                <table class="w-full">
+                                    <thead class="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Código</th>
+                                            <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Nome</th>
+                                            <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Marca</th>
+                                            <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Status</th>
+                                            <th class="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        <template x-for="p in products" :key="p.id">
+                                            <tr class="hover:bg-gray-50">
+                                                <td class="px-6 py-3 text-sm font-mono text-gray-600" x-text="p.code"></td>
+                                                <td class="px-6 py-3 text-sm text-gray-900" x-text="p.product_name"></td>
+                                                <td class="px-6 py-3 text-sm text-gray-500" x-text="p.brands"></td>
+                                                <td class="px-6 py-3">
+                                                    <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                                        :class="p.status === 'published' ? 'bg-off-100 text-off-700' : 'bg-yellow-100 text-yellow-700'"
+                                                        x-text="p.status"></span>
+                                                </td>
+                                                <td class="px-6 py-3 text-right">
+                                                    <button @click="editProduct(p)" class="text-off-600 hover:text-off-800 text-sm font-medium mr-3">Editar</button>
+                                                    <button @click="deleteProduct(p.id)" class="text-red-500 hover:text-red-700 text-sm font-medium">Excluir</button>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                                <div class="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between text-sm text-gray-500">
+                                    <span x-text="`${productsTotal} produto(s)`"></span>
+                                    <div class="flex gap-2">
+                                        <button @click="productsOffset = Math.max(0, productsOffset - 20); loadProducts()" :disabled="productsOffset === 0" class="px-3 py-1 border rounded text-sm disabled:opacity-30">Anterior</button>
+                                        <button @click="productsOffset += 20; loadProducts()" :disabled="productsOffset + 20 >= productsTotal" class="px-3 py-1 border rounded text-sm disabled:opacity-30">Próximo</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Lookup -->
+                <div x-show="page === 'lookup'" class="fade-in">
+                    <h2 class="text-xl font-bold text-gray-900 mb-6">Consultar Barcode</h2>
+                    <div class="max-w-2xl">
+                        <div class="flex gap-2 mb-6">
+                            <input x-model="lookupBarcode" @keydown.enter="lookupProduct()" type="text" placeholder="Digite o código de barras..." class="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none font-mono">
+                            <button @click="lookupProduct()" :disabled="loading" class="bg-off-600 hover:bg-off-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">Buscar</button>
+                        </div>
+
+                        <template x-if="lookupResult">
+                            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 fade-in">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div>
+                                        <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                            :class="lookupResult.source === 'custom' ? 'bg-off-100 text-off-700' : 'bg-blue-100 text-blue-700'"
+                                            x-text="lookupResult.source === 'custom' ? 'Produto Custom' : 'Open Food Facts'"></span>
+                                    </div>
+                                    <template x-if="lookupResult.source === 'openfoodfacts'">
+                                        <button @click="importToCustom(lookupResult.product)" class="text-off-600 hover:text-off-800 text-sm font-medium">Importar como Custom</button>
+                                    </template>
+                                </div>
+                                <h3 class="text-lg font-bold text-gray-900" x-text="lookupResult.product.product_name"></h3>
+                                <p class="text-gray-500" x-text="lookupResult.product.brands"></p>
+                                <div class="grid grid-cols-2 gap-4 mt-4 text-sm">
+                                    <div><span class="text-gray-400">Código:</span> <span class="font-mono" x-text="lookupResult.product.code"></span></div>
+                                    <div><span class="text-gray-400">Quantidade:</span> <span x-text="lookupResult.product.quantity || '—'"></span></div>
+                                    <div><span class="text-gray-400">Nutriscore:</span> <span class="uppercase font-bold" x-text="lookupResult.product.nutriscore_grade || '—'"></span></div>
+                                    <div><span class="text-gray-400">NOVA:</span> <span x-text="lookupResult.product.nova_group || '—'"></span></div>
+                                </div>
+                                <template x-if="lookupResult.product.categories && lookupResult.product.categories.length > 0">
+                                    <div class="mt-4">
+                                        <span class="text-sm text-gray-400">Categorias:</span>
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            <template x-for="cat in lookupResult.product.categories.slice(0, 5)" :key="cat">
+                                                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded" x-text="cat"></span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template x-if="lookupNotFound">
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center fade-in">
+                                <p class="text-yellow-800 font-medium">Produto não encontrado</p>
+                                <p class="text-yellow-600 text-sm mt-1">Deseja cadastrar este código?</p>
+                                <button @click="openProductForm(lookupBarcode)" class="mt-3 bg-off-600 hover:bg-off-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Cadastrar Produto</button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </template>
+
+    <!-- Product Form Modal -->
+    <template x-if="showProductForm">
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @click.self="showProductForm = false">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto fade-in">
+                <div class="p-6 border-b border-gray-200">
+                    <h3 class="text-lg font-bold text-gray-900" x-text="editingProduct ? 'Editar Produto' : 'Novo Produto'"></h3>
+                </div>
+                <form @submit.prevent="saveProduct()" class="p-6 space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Código de Barras *</label>
+                            <input x-model="productForm.code" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                            <select x-model="productForm.status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                                <option value="draft">Rascunho</option>
+                                <option value="published">Publicado</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome do Produto *</label>
+                        <input x-model="productForm.product_name" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Marca</label>
+                            <input x-model="productForm.brands" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Quantidade</label>
+                            <input x-model="productForm.quantity" type="text" placeholder="ex: 500g" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Nutriscore</label>
+                            <select x-model="productForm.nutriscore_grade" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                                <option value="">—</option>
+                                <option value="a">A</option>
+                                <option value="b">B</option>
+                                <option value="c">C</option>
+                                <option value="d">D</option>
+                                <option value="e">E</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">NOVA Group</label>
+                            <select x-model="productForm.nova_group" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                                <option value="">—</option>
+                                <option value="1">1 - Alimentos não processados</option>
+                                <option value="2">2 - Ingredientes culinários processados</option>
+                                <option value="3">3 - Alimentos processados</option>
+                                <option value="4">4 - Alimentos ultra-processados</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Categorias</label>
+                        <input x-model="productForm.categories_text" type="text" placeholder="Separar por vírgula: biscoitos, snacks" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Países</label>
+                        <input x-model="productForm.countries_text" type="text" placeholder="ex: en:brazil, en:portugal" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">URL da Imagem</label>
+                        <input x-model="productForm.image_url" type="url" placeholder="https://..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-off-500 focus:border-off-500 outline-none">
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                        <button type="button" @click="showProductForm = false" class="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm font-medium">Cancelar</button>
+                        <button type="submit" :disabled="loading" class="bg-off-600 hover:bg-off-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+                            <span x-text="editingProduct ? 'Salvar' : 'Criar'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </template>
+
+<script>
+function app() {
+    return {
+        // Auth
+        token: localStorage.getItem('token') || '',
+        refreshToken: localStorage.getItem('refreshToken') || '',
+        user: JSON.parse(localStorage.getItem('user') || 'null'),
+        isRegister: false,
+        form: { email: '', password: '', name: '' },
+        error: '',
+        loading: false,
+
+        // App state
+        page: 'dashboard',
+        stats: {},
+
+        // Products
+        products: [],
+        productsTotal: 0,
+        productsOffset: 0,
+        productSearch: '',
+
+        // Product form
+        showProductForm: false,
+        editingProduct: null,
+        productForm: {},
+
+        // Lookup
+        lookupBarcode: '',
+        lookupResult: null,
+        lookupNotFound: false,
+
+        init() {
+            if (this.token) {
+                this.loadStats();
+                this.verifyToken();
+            }
+        },
+
+        async api(method, path, body) {
+            const opts = {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+            };
+            if (this.token) {
+                opts.headers['Authorization'] = `Bearer ${this.token}`;
+            }
+            if (body) {
+                opts.body = JSON.stringify(body);
+            }
+            const res = await fetch(path, opts);
+
+            // Auto-refresh token on 401
+            if (res.status === 401 && this.refreshToken && path !== '/api/v1/auth/refresh') {
+                const refreshed = await this.refreshTokens();
+                if (refreshed) {
+                    opts.headers['Authorization'] = `Bearer ${this.token}`;
+                    return fetch(path, opts);
+                }
+                this.logout();
+                return res;
+            }
+            return res;
+        },
+
+        async login() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: this.form.email, password: this.form.password }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    this.error = data.error || 'Erro ao fazer login';
+                    return;
+                }
+                this.setAuth(data);
+            } catch (e) {
+                this.error = 'Erro de conexão';
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async register() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const res = await fetch('/api/v1/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: this.form.email, password: this.form.password, name: this.form.name }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    this.error = data.error || 'Erro ao registrar';
+                    return;
+                }
+                this.setAuth(data);
+            } catch (e) {
+                this.error = 'Erro de conexão';
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        setAuth(data) {
+            this.token = data.tokens.access_token;
+            this.refreshToken = data.tokens.refresh_token;
+            this.user = data.user;
+            localStorage.setItem('token', this.token);
+            localStorage.setItem('refreshToken', this.refreshToken);
+            localStorage.setItem('user', JSON.stringify(this.user));
+            this.loadStats();
+        },
+
+        async refreshTokens() {
+            try {
+                const res = await fetch('/api/v1/auth/refresh', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_token: this.refreshToken }),
+                });
+                if (!res.ok) return false;
+                const data = await res.json();
+                this.setAuth(data);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+
+        async verifyToken() {
+            try {
+                const res = await this.api('GET', '/api/v1/auth/me');
+                if (!res.ok) this.logout();
+            } catch {
+                this.logout();
+            }
+        },
+
+        logout() {
+            this.token = '';
+            this.refreshToken = '';
+            this.user = null;
+            localStorage.removeItem('token');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+        },
+
+        async loadStats() {
+            try {
+                const res = await fetch('/api/v1/stats');
+                this.stats = await res.json();
+                // Also load custom products count
+                const cRes = await this.api('GET', '/api/v1/products?limit=1');
+                if (cRes.ok) {
+                    const cData = await cRes.json();
+                    this.stats.custom_products = cData.total;
+                }
+            } catch {}
+        },
+
+        // Products CRUD
+        async loadProducts() {
+            try {
+                let url = `/api/v1/products?limit=20&offset=${this.productsOffset}`;
+                if (this.productSearch) url += `&q=${encodeURIComponent(this.productSearch)}`;
+                const res = await this.api('GET', url);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.products = data.products;
+                    this.productsTotal = data.total;
+                }
+            } catch {}
+        },
+
+        openProductForm(code) {
+            this.editingProduct = null;
+            this.productForm = {
+                code: code || '',
+                product_name: '',
+                brands: '',
+                quantity: '',
+                nutriscore_grade: '',
+                nova_group: '',
+                categories_text: '',
+                countries_text: '',
+                image_url: '',
+                status: 'draft',
+            };
+            this.showProductForm = true;
+        },
+
+        editProduct(p) {
+            this.editingProduct = p;
+            this.productForm = {
+                code: p.code,
+                product_name: p.product_name,
+                brands: p.brands,
+                quantity: p.quantity || '',
+                nutriscore_grade: p.nutriscore_grade || '',
+                nova_group: p.nova_group ? String(p.nova_group) : '',
+                categories_text: (p.categories || []).join(', '),
+                countries_text: (p.countries || []).join(', '),
+                image_url: p.image_url || '',
+                status: p.status,
+            };
+            this.showProductForm = true;
+        },
+
+        async saveProduct() {
+            this.loading = true;
+            const body = {
+                code: this.productForm.code,
+                product_name: this.productForm.product_name,
+                brands: this.productForm.brands,
+                quantity: this.productForm.quantity,
+                nutriscore_grade: this.productForm.nutriscore_grade,
+                nova_group: this.productForm.nova_group ? parseInt(this.productForm.nova_group) : null,
+                categories: this.productForm.categories_text ? this.productForm.categories_text.split(',').map(s => s.trim()).filter(Boolean) : [],
+                countries: this.productForm.countries_text ? this.productForm.countries_text.split(',').map(s => s.trim()).filter(Boolean) : [],
+                image_url: this.productForm.image_url,
+                status: this.productForm.status,
+            };
+
+            try {
+                let res;
+                if (this.editingProduct) {
+                    res = await this.api('PUT', `/api/v1/products/${this.editingProduct.id}`, body);
+                } else {
+                    res = await this.api('POST', '/api/v1/products', body);
+                }
+                if (res.ok) {
+                    this.showProductForm = false;
+                    this.loadProducts();
+                    this.loadStats();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Erro ao salvar');
+                }
+            } catch {
+                alert('Erro de conexão');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async deleteProduct(id) {
+            if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+            try {
+                const res = await this.api('DELETE', `/api/v1/products/${id}`);
+                if (res.ok) {
+                    this.loadProducts();
+                    this.loadStats();
+                }
+            } catch {}
+        },
+
+        // Lookup
+        async lookupProduct() {
+            if (!this.lookupBarcode) return;
+            this.loading = true;
+            this.lookupResult = null;
+            this.lookupNotFound = false;
+            try {
+                const res = await this.api('GET', `/api/v1/product/${this.lookupBarcode}`);
+                if (res.ok) {
+                    this.lookupResult = await res.json();
+                } else if (res.status === 404) {
+                    this.lookupNotFound = true;
+                }
+            } catch {} finally {
+                this.loading = false;
+            }
+        },
+
+        importToCustom(product) {
+            this.editingProduct = null;
+            this.productForm = {
+                code: product.code,
+                product_name: product.product_name,
+                brands: product.brands || '',
+                quantity: product.quantity || '',
+                nutriscore_grade: product.nutriscore_grade || '',
+                nova_group: product.nova_group ? String(product.nova_group) : '',
+                categories_text: (product.categories || []).join(', '),
+                countries_text: (product.countries || []).join(', '),
+                image_url: product.image_url || '',
+                status: 'draft',
+            };
+            this.showProductForm = true;
+        },
+    };
+}
+</script>
+</body>
+</html>

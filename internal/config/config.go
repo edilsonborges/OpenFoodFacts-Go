@@ -8,6 +8,10 @@ type Config struct {
 	Port   string
 	APIKey string
 
+	// JWT
+	JWTSecret  string
+	SQLitePath string
+
 	// DuckDB
 	DuckDBPath        string
 	DuckDBMemoryLimit string
@@ -34,6 +38,8 @@ func Load() *Config {
 	return &Config{
 		Port:              envOrDefault("PORT", "8080"),
 		APIKey:            envOrDefault("API_KEY", "changeme"),
+		JWTSecret:         envOrDefault("JWT_SECRET", "change-this-secret-in-production"),
+		SQLitePath:        envOrDefault("SQLITE_PATH", "/data/app.db"),
 		DuckDBPath:        envOrDefault("DUCKDB_PATH", "/data/off.duckdb"),
 		DuckDBMemoryLimit: envOrDefault("DUCKDB_MEMORY_LIMIT", "2GB"),
 		DuckDBThreads:     envOrDefault("DUCKDB_THREADS", "4"),
