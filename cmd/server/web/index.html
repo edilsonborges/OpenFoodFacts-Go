@@ -73,6 +73,7 @@
                             <button @click="page = 'products'; loadProducts()" :class="page === 'products' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Produtos</button>
                             <button @click="page = 'lookup'" :class="page === 'lookup' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Consultar</button>
                             <button @click="page = 'dataset'" :class="page === 'dataset' ? 'text-off-600 border-b-2 border-off-600' : 'text-gray-500 hover:text-gray-700'" class="py-4 text-sm font-medium">Dataset</button>
+                            <a href="/swagger.html" target="_blank" class="text-gray-400 hover:text-off-600 py-4 text-sm font-medium">API Docs</a>
                         </div>
                         <div class="flex items-center gap-3">
                             <span class="text-sm text-gray-500" x-text="user?.name || user?.email"></span>

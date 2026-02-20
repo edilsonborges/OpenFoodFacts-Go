@@ -1,0 +1,874 @@
+openapi: 3.0.3
+info:
+  title: OFF Barcode Server API
+  description: |
+    API para consulta de produtos alimentícios usando a base do Open Food Facts
+    e gestão de produtos customizados de forma colaborativa.
+
+    ## Autenticação
+    A API suporta dois métodos:
+    - **Bearer Token (JWT)**: Obtenha via `POST /api/v1/auth/login` e envie no header `Authorization: Bearer <token>`
+    - **API Key**: Envie no header `X-API-Key: <chave>`
+
+    ## Fluxo para Apps Mobile
+    1. Login com `POST /api/v1/auth/login` → recebe `access_token` e `refresh_token`
+    2. Use o `access_token` em todas as requisições protegidas
+    3. Quando expirar (24h), renove com `POST /api/v1/auth/refresh`
+    4. Busque produtos por barcode com `GET /api/v1/product/{barcode}`
+    5. Se não encontrar, crie como custom com `POST /api/v1/products` (será criado como draft)
+  version: 1.0.0
+  contact:
+    name: Edilson Borges
+    email: admin@edilson.dev
+
+servers:
+  - url: https://openfoodfacts.edilson.dev
+    description: Produção
+  - url: http://localhost:8080
+    description: Desenvolvimento local
+
+tags:
+  - name: Auth
+    description: Autenticação e gerenciamento de usuários
+  - name: Products
+    description: CRUD de produtos customizados (colaborativo)
+  - name: Lookup
+    description: Consulta unificada por barcode (custom + Open Food Facts)
+  - name: Search
+    description: Busca na base do Open Food Facts
+  - name: Image
+    description: Proxy de imagens com cache local
+  - name: Dataset
+    description: Informações e atualização do dataset
+  - name: Stats
+    description: Status do servidor
+
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      description: Autentica um usuário e retorna tokens JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@edilson.dev
+                password:
+                  type: string
+                  example: minha-senha
+      responses:
+        "200":
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renovar tokens
+      description: Gera novos tokens a partir de um refresh token válido.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        "200":
+          description: Tokens renovados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Refresh token inválido ou expirado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Registrar usuário (admin only)
+      description: Cria um novo usuário. Requer autenticação de admin.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                password:
+                  type: string
+                  minLength: 6
+                role:
+                  type: string
+                  enum: [admin, editor, viewer]
+                  default: editor
+      responses:
+        "201":
+          description: Usuário criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "403":
+          description: Apenas admins podem criar usuários
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Usuário já existe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Usuário atual
+      description: Retorna os dados do usuário autenticado.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Dados do usuário
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/product/{barcode}:
+    get:
+      tags: [Lookup]
+      summary: Buscar produto por barcode
+      description: |
+        Busca unificada: verifica primeiro nos produtos custom, depois no Open Food Facts.
+        Retorna a fonte do produto (`custom` ou `openfoodfacts`).
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: barcode
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "7891000315507"
+      responses:
+        "200":
+          description: Produto encontrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                    enum: [custom, openfoodfacts]
+                  product:
+                    oneOf:
+                      - $ref: "#/components/schemas/CustomProduct"
+                      - $ref: "#/components/schemas/OFFProduct"
+        "404":
+          description: Produto não encontrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  found:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Product not found. You can add it as a custom product."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/search:
+    get:
+      tags: [Search]
+      summary: Buscar na base OFF
+      description: |
+        Busca produtos na base do Open Food Facts por nome ou marca.
+        A query é opcional — sem `q`, retorna produtos do país selecionado.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Termo de busca (nome ou marca)
+          schema:
+            type: string
+          example: coca
+        - name: country
+          in: query
+          description: "Filtro de país (formato: `en:brazil`, `en:france`)"
+          schema:
+            type: string
+          example: "en:brazil"
+        - name: limit
+          in: query
+          description: Máximo de resultados (1-100)
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          description: Deslocamento para paginação
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        "200":
+          description: Resultados da busca
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  count:
+                    type: integer
+                    description: Quantidade retornada nesta página
+                  products:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/products:
+    post:
+      tags: [Products]
+      summary: Criar produto custom
+      description: |
+        Cria um novo produto customizado. O status é sempre `draft` na criação.
+        Apenas admins podem publicar via `PUT`.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Produto criado (como draft)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomProduct"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Produto com este barcode já existe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    get:
+      tags: [Products]
+      summary: Listar produtos custom
+      description: Lista produtos customizados com indicação se existe no OFF.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Filtro por nome ou barcode
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        "200":
+          description: Lista de produtos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/CustomProduct"
+                        - type: object
+                          properties:
+                            exists_in_off:
+                              type: boolean
+                              description: Se o barcode existe na base OFF
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/products/{id}:
+    get:
+      tags: [Products]
+      summary: Obter produto custom por ID
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Produto encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomProduct"
+        "404":
+          description: Produto não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [Products]
+      summary: Atualizar produto custom
+      description: |
+        Atualização parcial — apenas campos enviados são alterados.
+        Para publicar (`status: "published"`), o usuário deve ser admin.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProductRequest"
+      responses:
+        "200":
+          description: Produto atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomProduct"
+        "403":
+          description: Apenas admins podem publicar
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Produto não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Products]
+      summary: Excluir produto custom
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Produto excluído
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: product deleted
+        "404":
+          description: Produto não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/image/{barcode}/{imgtype}/{resolution}:
+    get:
+      tags: [Image]
+      summary: Obter imagem de produto
+      description: |
+        Proxy com cache local para imagens do Open Food Facts (S3).
+        O cache é mantido por 90 dias.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: barcode
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "7891000315507"
+        - name: imgtype
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [front, ingredients, nutrition, packaging]
+          example: front
+        - name: resolution
+          in: path
+          required: true
+          schema:
+            type: integer
+            enum: [100, 200, 400]
+          example: 400
+      responses:
+        "200":
+          description: Imagem JPEG
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Imagem não disponível
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/stats:
+    get:
+      tags: [Stats]
+      summary: Status do servidor
+      description: Informações do dataset, cache e uptime. Endpoint público.
+      responses:
+        "200":
+          description: Status do servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+
+  /api/v1/dataset/refresh:
+    post:
+      tags: [Dataset]
+      summary: Atualizar dataset
+      description: |
+        Inicia o download e importação do Parquet mais recente em background.
+        A resposta é imediata — use `GET /api/v1/stats` para acompanhar.
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      responses:
+        "202":
+          description: Atualização iniciada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Dataset refresh started in background
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Token obtido via POST /api/v1/auth/login"
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: "Chave estática configurada no servidor"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      example:
+        error: "missing or invalid authentication"
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        created_at:
+          type: string
+          format: date-time
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: "JWT válido por 24 horas"
+        refresh_token:
+          type: string
+          description: "JWT válido por 7 dias"
+        expires_in:
+          type: integer
+          description: "Tempo de expiração em segundos (86400)"
+          example: 86400
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        tokens:
+          $ref: "#/components/schemas/TokenPair"
+
+    CreateProductRequest:
+      type: object
+      required: [code, product_name]
+      properties:
+        code:
+          type: string
+          description: Código de barras (EAN/UPC)
+          example: "7891000315507"
+        product_name:
+          type: string
+          example: "Nescau 400g"
+        brands:
+          type: string
+          example: "Nestlé"
+        quantity:
+          type: string
+          example: "400g"
+        nutriscore_grade:
+          type: string
+          enum: [a, b, c, d, e]
+        nova_group:
+          type: integer
+          minimum: 1
+          maximum: 4
+        categories:
+          type: array
+          items:
+            type: string
+          example: ["en:cocoa-powders", "en:breakfast-cereals"]
+        countries:
+          type: array
+          items:
+            type: string
+          example: ["en:brazil"]
+        allergens:
+          type: array
+          items:
+            type: string
+          example: ["en:milk", "en:gluten"]
+        labels:
+          type: array
+          items:
+            type: string
+        nutriments:
+          type: object
+          description: Valores nutricionais (formato livre)
+          example:
+            energy_kcal_100g: 380
+            fat_100g: 3.5
+            carbohydrates_100g: 78
+            proteins_100g: 5.2
+        image_url:
+          type: string
+          format: uri
+
+    UpdateProductRequest:
+      type: object
+      description: "Todos os campos são opcionais. Apenas campos enviados são atualizados."
+      properties:
+        code:
+          type: string
+        product_name:
+          type: string
+        brands:
+          type: string
+        quantity:
+          type: string
+        nutriscore_grade:
+          type: string
+          enum: [a, b, c, d, e]
+        nova_group:
+          type: integer
+          minimum: 1
+          maximum: 4
+        categories:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+        allergens:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        nutriments:
+          type: object
+        image_url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [draft, published]
+          description: "Mudar para `published` requer role admin"
+
+    CustomProduct:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        product_name:
+          type: string
+        brands:
+          type: string
+        quantity:
+          type: string
+        nutriscore_grade:
+          type: string
+        nova_group:
+          type: integer
+          nullable: true
+        categories:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+        allergens:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        nutriments:
+          type: object
+        image_url:
+          type: string
+        status:
+          type: string
+          enum: [draft, published]
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OFFProduct:
+      type: object
+      description: Produto da base Open Food Facts
+      properties:
+        code:
+          type: string
+        product_name:
+          type: string
+        brands:
+          type: string
+        quantity:
+          type: string
+        nutriscore_grade:
+          type: string
+        nova_group:
+          type: integer
+          nullable: true
+        categories:
+          type: array
+          items:
+            type: string
+        countries:
+          type: array
+          items:
+            type: string
+        allergens:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        nutriments:
+          type: object
+        image_url:
+          type: string
+          description: "URL relativa: /api/v1/image/{code}/front/400"
+        image_thumb_url:
+          type: string
+          description: "URL relativa: /api/v1/image/{code}/front/200"
+        source:
+          type: string
+          example: openfoodfacts
+        last_modified:
+          type: string
+          format: date-time
+
+    ProductSummary:
+      type: object
+      description: Resumo de produto (resultado de busca)
+      properties:
+        code:
+          type: string
+        product_name:
+          type: string
+        brands:
+          type: string
+        image_thumb_url:
+          type: string
+
+    Stats:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        dataset_date:
+          type: string
+          example: "2024-01-15"
+        total_products:
+          type: integer
+          example: 3000000
+        cached_images:
+          type: integer
+        cached_images_size_mb:
+          type: number
+          format: float
+        duckdb_version:
+          type: string
+        uptime_hours:
+          type: integer
+        parquet_url:
+          type: string
+          format: uri
+        parquet_size_mb:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: Requisição inválida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Autenticação necessária
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "missing or invalid authentication"
